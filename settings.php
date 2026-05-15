@@ -15,9 +15,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'save_
     $content    = file_get_contents($configPath);
 
     $replacements = [
-        'CLINIC_NAME'       => $_POST['clinic_name']    ?? CLINIC_NAME,
-        'CLINIC_PHONE'      => $_POST['clinic_phone']   ?? CLINIC_PHONE,
-        'CLINIC_ADDRESS'    => $_POST['clinic_address'] ?? CLINIC_ADDRESS,
+        'CLINIC_NAME'       => $_POST['clinic_name']       ?? CLINIC_NAME,
+        'CLINIC_PHONE'      => $_POST['clinic_phone']      ?? CLINIC_PHONE,
+        'CLINIC_ADDRESS'    => $_POST['clinic_address']    ?? CLINIC_ADDRESS,
         'TEXTBEE_API_KEY'   => $_POST['textbee_api_key']   ?? TEXTBEE_API_KEY,
         'TEXTBEE_DEVICE_ID' => $_POST['textbee_device_id'] ?? TEXTBEE_DEVICE_ID,
     ];

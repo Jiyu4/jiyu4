@@ -3,94 +3,108 @@ require_once __DIR__ . '/config.php';
 
 class JsonDB {
 
-    // ── helpers ────────────────────────────────────────────
+    private PDO $pdo;
 
-    private function read(string $file): array {
-        if (!file_exists($file)) return [];
-        $json = file_get_contents($file);
-        return json_decode($json, true) ?? [];
+    public function __construct() {
+        $dsn = sprintf(
+            'mysql:host=%s;port=%s;dbname=%s;charset=%s',
+            DB_HOST, DB_PORT, DB_NAME, DB_CHARSET
+        );
+        try {
+            $this->pdo = new PDO($dsn, DB_USER, DB_PASS, [
+                PDO::ATTR_ERRMODE            => PDO::ERRMODE_EXCEPTION,
+                PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,
+                PDO::ATTR_EMULATE_PREPARES   => false,
+            ]);
+        } catch (PDOException $e) {
+            die('<div style="font-family:sans-serif;padding:40px;color:#7f1d1d;background:#fee2e2;border-radius:8px;margin:40px auto;max-width:600px">
+                <h2>⚠️ Database Connection Failed</h2>
+                <p>' . htmlspecialchars($e->getMessage()) . '</p>
+                <p>Check your DB_HOST, DB_NAME, DB_USER, DB_PASS in <code>includes/config.php</code> or environment variables.</p>
+            </div>');
+        }
     }
 
-    private function write(string $file, array $data): bool {
-        $dir = dirname($file);
-        if (!is_dir($dir)) mkdir($dir, 0755, true);
-        return file_put_contents($file, json_encode($data, JSON_PRETTY_PRINT)) !== false;
-    }
-
-    private function generateId(): string {
-        return uniqid('', true);
-    }
+    public function getPdo(): PDO { return $this->pdo; }
 
     // ══════════════════════════════════════════════════════
     //  PATIENTS
     // ══════════════════════════════════════════════════════
 
     public function getAllPatients(): array {
-        $patients = $this->read(PATIENTS_FILE);
-        usort($patients, fn($a, $b) => strcmp($a['last_name'], $b['last_name']));
-        return $patients;
+        $stmt = $this->pdo->query(
+            'SELECT * FROM patients ORDER BY last_name ASC, first_name ASC'
+        );
+        return $stmt->fetchAll();
     }
 
     public function getPatient(string $id): ?array {
-        foreach ($this->read(PATIENTS_FILE) as $p) {
-            if ($p['id'] === $id) return $p;
-        }
-        return null;
+        $stmt = $this->pdo->prepare('SELECT * FROM patients WHERE id = ? LIMIT 1');
+        $stmt->execute([$id]);
+        $row = $stmt->fetch();
+        return $row ?: null;
     }
 
     public function searchPatients(string $query): array {
-        $query = strtolower(trim($query));
-        return array_values(array_filter(
-            $this->read(PATIENTS_FILE),
-            fn($p) => str_contains(strtolower($p['first_name'] . ' ' . $p['last_name']), $query)
-                   || str_contains($p['phone'] ?? '', $query)
-                   || str_contains($p['patient_id'] ?? '', $query)
-        ));
+        $like = '%' . $query . '%';
+        $stmt = $this->pdo->prepare(
+            'SELECT * FROM patients
+             WHERE CONCAT(first_name," ",last_name) LIKE ?
+                OR phone      LIKE ?
+                OR patient_id LIKE ?
+             ORDER BY last_name ASC'
+        );
+        $stmt->execute([$like, $like, $like]);
+        return $stmt->fetchAll();
     }
 
     public function createPatient(array $data): array {
-        $patients = $this->read(PATIENTS_FILE);
-        $patient = [
-            'id'          => $this->generateId(),
-            'patient_id'  => 'PT-' . str_pad(count($patients) + 1, 5, '0', STR_PAD_LEFT),
-            'first_name'  => trim($data['first_name']),
-            'last_name'   => trim($data['last_name']),
-            'dob'         => $data['dob'],
-            'gender'      => $data['gender'],
-            'phone'       => $data['phone'],
-            'email'       => $data['email'] ?? '',
-            'address'     => $data['address'] ?? '',
-            'blood_type'  => $data['blood_type'] ?? '',
-            'allergies'   => $data['allergies'] ?? '',
-            'notes'       => $data['notes'] ?? '',
-            'created_at'  => date('Y-m-d H:i:s'),
-            'updated_at'  => date('Y-m-d H:i:s'),
-        ];
-        $patients[] = $patient;
-        $this->write(PATIENTS_FILE, $patients);
-        return $patient;
+        // Auto-generate patient_id
+        $count = $this->pdo->query('SELECT COUNT(*) FROM patients')->fetchColumn();
+        $patientId = 'PT-' . str_pad($count + 1, 5, '0', STR_PAD_LEFT);
+
+        $stmt = $this->pdo->prepare(
+            'INSERT INTO patients
+             (patient_id, first_name, last_name, dob, gender, phone, email, address, blood_type, allergies, notes)
+             VALUES (?,?,?,?,?,?,?,?,?,?,?)'
+        );
+        $stmt->execute([
+            $patientId,
+            trim($data['first_name']),
+            trim($data['last_name']),
+            $data['dob'],
+            $data['gender'],
+            $data['phone'],
+            $data['email']      ?? '',
+            $data['address']    ?? '',
+            $data['blood_type'] ?? '',
+            $data['allergies']  ?? '',
+            $data['notes']      ?? '',
+        ]);
+
+        return $this->getPatient((string) $this->pdo->lastInsertId());
     }
 
     public function updatePatient(string $id, array $data): bool {
-        $patients = $this->read(PATIENTS_FILE);
-        foreach ($patients as &$p) {
-            if ($p['id'] === $id) {
-                foreach (['first_name','last_name','dob','gender','phone','email','address','blood_type','allergies','notes'] as $f) {
-                    if (isset($data[$f])) $p[$f] = $data[$f];
-                }
-                $p['updated_at'] = date('Y-m-d H:i:s');
-                return $this->write(PATIENTS_FILE, $patients);
+        $fields = ['first_name','last_name','dob','gender','phone','email','address','blood_type','allergies','notes'];
+        $sets   = [];
+        $vals   = [];
+        foreach ($fields as $f) {
+            if (isset($data[$f])) {
+                $sets[] = "{$f} = ?";
+                $vals[] = $data[$f];
             }
         }
-        return false;
+        if (empty($sets)) return false;
+        $sets[] = 'updated_at = NOW()';
+        $vals[] = $id;
+        $stmt = $this->pdo->prepare('UPDATE patients SET ' . implode(', ', $sets) . ' WHERE id = ?');
+        return $stmt->execute($vals);
     }
 
     public function deletePatient(string $id): bool {
-        $patients = array_values(array_filter(
-            $this->read(PATIENTS_FILE),
-            fn($p) => $p['id'] !== $id
-        ));
-        return $this->write(PATIENTS_FILE, $patients);
+        $stmt = $this->pdo->prepare('DELETE FROM patients WHERE id = ?');
+        return $stmt->execute([$id]);
     }
 
     // ══════════════════════════════════════════════════════
@@ -98,78 +112,95 @@ class JsonDB {
     // ══════════════════════════════════════════════════════
 
     public function getAllAppointments(): array {
-        $appts = $this->read(APPOINTMENTS_FILE);
-        usort($appts, fn($a, $b) => strcmp($a['date'] . $a['time'], $b['date'] . $b['time']));
-        return $appts;
+        $stmt = $this->pdo->query(
+            'SELECT a.*, CONCAT(p.first_name," ",p.last_name) AS patient_name
+             FROM appointments a
+             LEFT JOIN patients p ON p.id = a.patient_id
+             ORDER BY a.date ASC, a.time ASC'
+        );
+        return $stmt->fetchAll();
     }
 
     public function getAppointment(string $id): ?array {
-        foreach ($this->read(APPOINTMENTS_FILE) as $a) {
-            if ($a['id'] === $id) return $a;
-        }
-        return null;
+        $stmt = $this->pdo->prepare(
+            'SELECT a.*, CONCAT(p.first_name," ",p.last_name) AS patient_name
+             FROM appointments a
+             LEFT JOIN patients p ON p.id = a.patient_id
+             WHERE a.id = ? LIMIT 1'
+        );
+        $stmt->execute([$id]);
+        $row = $stmt->fetch();
+        return $row ?: null;
     }
 
     public function getTodayAppointments(): array {
-        $today = date('Y-m-d');
-        $appts = array_filter(
-            $this->read(APPOINTMENTS_FILE),
-            fn($a) => $a['date'] === $today
+        $stmt = $this->pdo->prepare(
+            'SELECT a.*, CONCAT(p.first_name," ",p.last_name) AS patient_name
+             FROM appointments a
+             LEFT JOIN patients p ON p.id = a.patient_id
+             WHERE a.date = CURDATE()
+             ORDER BY a.time ASC'
         );
-        usort($appts, fn($a, $b) => strcmp($a['time'], $b['time']));
-        return array_values($appts);
+        $stmt->execute();
+        return $stmt->fetchAll();
     }
 
     public function getPatientAppointments(string $patientId): array {
-        return array_values(array_filter(
-            $this->read(APPOINTMENTS_FILE),
-            fn($a) => $a['patient_id'] === $patientId
-        ));
+        $stmt = $this->pdo->prepare(
+            'SELECT * FROM appointments WHERE patient_id = ? ORDER BY date DESC, time DESC'
+        );
+        $stmt->execute([$patientId]);
+        return $stmt->fetchAll();
     }
 
     public function createAppointment(array $data): array {
-        $appointments = $this->read(APPOINTMENTS_FILE);
-        $patient = $this->getPatient($data['patient_id']);
-        $appointment = [
-            'id'           => $this->generateId(),
-            'appt_id'      => 'APT-' . str_pad(count($appointments) + 1, 5, '0', STR_PAD_LEFT),
-            'patient_id'   => $data['patient_id'],
-            'patient_name' => ($patient['first_name'] ?? '') . ' ' . ($patient['last_name'] ?? ''),
-            'date'         => $data['date'],
-            'time'         => $data['time'],
-            'reason'       => $data['reason'],
-            'doctor'       => $data['doctor'] ?? '',
-            'notes'        => $data['notes'] ?? '',
-            'status'       => 'pending',
-            'sms_sent'     => false,
-            'created_at'   => date('Y-m-d H:i:s'),
-            'updated_at'   => date('Y-m-d H:i:s'),
-        ];
-        $appointments[] = $appointment;
-        $this->write(APPOINTMENTS_FILE, $appointments);
-        return $appointment;
+        $count  = $this->pdo->query('SELECT COUNT(*) FROM appointments')->fetchColumn();
+        $apptId = 'APT-' . str_pad($count + 1, 5, '0', STR_PAD_LEFT);
+
+        $stmt = $this->pdo->prepare(
+            'INSERT INTO appointments (appt_id, patient_id, user_id, date, time, reason, doctor, notes, status, sms_sent)
+             VALUES (?,?,?,?,?,?,?,?,?,?)'
+        );
+        $stmt->execute([
+            $apptId,
+            $data['patient_id'],
+            $data['user_id'] ?? null,
+            $data['date'],
+            $data['time'],
+            $data['reason'],
+            $data['doctor'] ?? '',
+            $data['notes']  ?? '',
+            'pending',
+            0,
+        ]);
+
+        return $this->getAppointment((string) $this->pdo->lastInsertId());
     }
 
     public function updateAppointment(string $id, array $data): bool {
-        $appointments = $this->read(APPOINTMENTS_FILE);
-        foreach ($appointments as &$a) {
-            if ($a['id'] === $id) {
-                foreach (['date','time','reason','doctor','notes','status','sms_sent'] as $f) {
-                    if (array_key_exists($f, $data)) $a[$f] = $data[$f];
-                }
-                $a['updated_at'] = date('Y-m-d H:i:s');
-                return $this->write(APPOINTMENTS_FILE, $appointments);
+        $fields = ['date','time','reason','doctor','notes','status'];
+        $sets   = [];
+        $vals   = [];
+        foreach ($fields as $f) {
+            if (array_key_exists($f, $data)) {
+                $sets[] = "{$f} = ?";
+                $vals[] = $data[$f];
             }
         }
-        return false;
+        if (array_key_exists('sms_sent', $data)) {
+            $sets[] = 'sms_sent = ?';
+            $vals[] = $data['sms_sent'] ? 1 : 0;
+        }
+        if (empty($sets)) return false;
+        $sets[] = 'updated_at = NOW()';
+        $vals[] = $id;
+        $stmt = $this->pdo->prepare('UPDATE appointments SET ' . implode(', ', $sets) . ' WHERE id = ?');
+        return $stmt->execute($vals);
     }
 
     public function deleteAppointment(string $id): bool {
-        $appointments = array_values(array_filter(
-            $this->read(APPOINTMENTS_FILE),
-            fn($a) => $a['id'] !== $id
-        ));
-        return $this->write(APPOINTMENTS_FILE, $appointments);
+        $stmt = $this->pdo->prepare('DELETE FROM appointments WHERE id = ?');
+        return $stmt->execute([$id]);
     }
 
     // ══════════════════════════════════════════════════════
@@ -177,18 +208,38 @@ class JsonDB {
     // ══════════════════════════════════════════════════════
 
     public function logSms(array $data): void {
-        $logs = $this->read(SMS_LOG_FILE);
-        $logs[] = array_merge($data, [
-            'id'         => $this->generateId(),
-            'created_at' => date('Y-m-d H:i:s'),
+        $stmt = $this->pdo->prepare(
+            'INSERT INTO sms_log (type, appointment_id, patient_id, patient_name, `to`, message, success, error)
+             VALUES (?,?,?,?,?,?,?,?)'
+        );
+        $stmt->execute([
+            $data['type']           ?? 'custom',
+            $data['appointment_id'] ?? null,
+            $data['patient_id']     ?? null,
+            $data['patient_name']   ?? '',
+            $data['to']             ?? '',
+            $data['message']        ?? '',
+            ($data['success'] ?? false) ? 1 : 0,
+            $data['error']          ?? null,
         ]);
-        $this->write(SMS_LOG_FILE, $logs);
     }
 
     public function getSmsLogs(): array {
-        $logs = $this->read(SMS_LOG_FILE);
-        usort($logs, fn($a, $b) => strcmp($b['created_at'], $a['created_at']));
-        return $logs;
+        $stmt = $this->pdo->query('SELECT * FROM sms_log ORDER BY created_at DESC');
+        return $stmt->fetchAll();
+    }
+
+    public function getRecentPendingAppointments(int $limit = 5): array {
+        $stmt = $this->pdo->prepare(
+            'SELECT a.*, CONCAT(p.first_name," ",p.last_name) AS patient_name
+             FROM appointments a
+             LEFT JOIN patients p ON p.id = a.patient_id
+             WHERE a.status = "pending"
+             ORDER BY a.date ASC, a.time ASC
+             LIMIT ?'
+        );
+        $stmt->execute([$limit]);
+        return $stmt->fetchAll();
     }
 
     // ══════════════════════════════════════════════════════
@@ -196,15 +247,22 @@ class JsonDB {
     // ══════════════════════════════════════════════════════
 
     public function getStats(): array {
-        $patients     = $this->read(PATIENTS_FILE);
-        $appointments = $this->read(APPOINTMENTS_FILE);
-        $today        = date('Y-m-d');
-
         return [
-            'total_patients'        => count($patients),
-            'today_appointments'    => count(array_filter($appointments, fn($a) => $a['date'] === $today)),
-            'pending_appointments'  => count(array_filter($appointments, fn($a) => $a['status'] === 'pending')),
-            'completed_appointments'=> count(array_filter($appointments, fn($a) => $a['status'] === 'completed')),
+            'total_patients' => $this->pdo->query(
+                'SELECT COUNT(*) FROM patients'
+            )->fetchColumn(),
+
+            'today_appointments' => $this->pdo->query(
+                'SELECT COUNT(*) FROM appointments WHERE date = CURDATE()'
+            )->fetchColumn(),
+
+            'pending_appointments' => $this->pdo->query(
+                'SELECT COUNT(*) FROM appointments WHERE status = "pending"'
+            )->fetchColumn(),
+
+            'completed_appointments' => $this->pdo->query(
+                'SELECT COUNT(*) FROM appointments WHERE status = "completed"'
+            )->fetchColumn(),
         ];
     }
 }

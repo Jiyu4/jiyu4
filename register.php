@@ -5,28 +5,34 @@ require_once 'includes/auth.php';
 $auth = new Auth();
 
 if ($auth->isLoggedIn()) {
-    header('Location: index.php');
-    exit;
+    $auth->redirectToDashboard();
 }
 
-$error   = '';
-$success = '';
-$values  = [];
+$error  = '';
+$values = [];
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $values = [
-        'name'     => trim($_POST['name']     ?? ''),
-        'email'    => trim($_POST['email']    ?? ''),
-        'phone'    => trim($_POST['phone']    ?? ''),
-        'password' => $_POST['password']      ?? '',
-        'confirm'  => $_POST['confirm']       ?? '',
+        'name'       => trim($_POST['name']       ?? ''),
+        'email'      => trim($_POST['email']       ?? ''),
+        'phone'      => trim($_POST['phone']       ?? ''),
+        'dob'        => trim($_POST['dob']         ?? ''),
+        'gender'     => trim($_POST['gender']      ?? ''),
+        'address'    => trim($_POST['address']     ?? ''),
+        'blood_type' => trim($_POST['blood_type']  ?? ''),
+        'allergies'  => trim($_POST['allergies']   ?? ''),
+        'password'   => $_POST['password']         ?? '',
+        'confirm'    => $_POST['confirm']          ?? '',
     ];
 
-    // Validate
     if (empty($values['name']) || empty($values['email']) || empty($values['password'])) {
         $error = 'Name, email and password are required.';
     } elseif (!filter_var($values['email'], FILTER_VALIDATE_EMAIL)) {
         $error = 'Please enter a valid email address.';
+    } elseif (empty($values['dob'])) {
+        $error = 'Date of birth is required.';
+    } elseif (empty($values['gender'])) {
+        $error = 'Please select your gender.';
     } elseif (strlen($values['password']) < 8) {
         $error = 'Password must be at least 8 characters.';
     } elseif ($values['password'] !== $values['confirm']) {
@@ -36,7 +42,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         if ($user === false) {
             $error = 'An account with that email already exists.';
         } else {
-            // Auto-login after register
             header('Location: login.php?registered=1');
             exit;
         }
@@ -48,90 +53,132 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Register — <?= htmlspecialchars(CLINIC_NAME) ?></title>
+    <title>Patient Registration — <?= htmlspecialchars(CLINIC_NAME) ?></title>
     <link href="https://fonts.googleapis.com/css2?family=DM+Serif+Display:ital@0;1&family=DM+Sans:wght@300;400;500;600&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="assets/style.css">
     <style>
-        body { background: var(--navy); display:flex; align-items:center; justify-content:center; min-height:100vh; margin:0; padding:24px; }
-        .login-wrap { width:100%; max-width:480px; }
-        .login-card { background:#fff; border-radius:16px; box-shadow:0 20px 60px rgba(0,0,0,.3); overflow:hidden; }
-        .login-hero  { background: linear-gradient(135deg, #0d8f7c 0%, #0f2240 100%); padding:32px 36px 24px; text-align:center; }
-        .login-hero .logo-icon { font-size:40px; display:block; margin-bottom:10px; }
-        .login-hero h1 { font-family:'DM Serif Display',serif; color:#fff; font-size:24px; margin:0 0 4px; }
-        .login-hero p  { color:rgba(255,255,255,.6); font-size:13px; margin:0; }
-        .login-body  { padding:28px 36px 36px; }
-        .form-group  { margin-bottom:16px; }
-        .form-group label { display:block; font-size:13px; font-weight:500; color:var(--navy); margin-bottom:6px; }
-        .form-group input { width:100%; padding:11px 14px; border:1.5px solid var(--border); border-radius:8px; font-size:14px; font-family:inherit; transition:border-color .15s; }
-        .form-group input:focus { outline:none; border-color:var(--teal); box-shadow:0 0 0 3px rgba(13,143,124,.1); }
-        .form-row    { display:grid; grid-template-columns:1fr 1fr; gap:14px; }
-        .btn-login   { width:100%; padding:13px; background:var(--teal); color:#fff; border:none; border-radius:8px; font-size:15px; font-weight:600; cursor:pointer; font-family:inherit; transition:background .15s; margin-top:6px; }
-        .btn-login:hover { background:#0a7a6a; }
-        .login-link  { text-align:center; margin-top:18px; font-size:13.5px; color:var(--muted); }
+        body { background: var(--navy); display:flex; align-items:center; justify-content:center; min-height:100vh; margin:0; padding:24px 16px; }
+        .reg-wrap { width:100%; max-width:560px; }
+        .reg-card { background:#fff; border-radius:16px; box-shadow:0 20px 60px rgba(0,0,0,.3); overflow:hidden; }
+        .reg-hero  { background: linear-gradient(135deg, #0d8f7c 0%, #0f2240 100%); padding:28px 36px 22px; text-align:center; }
+        .reg-hero .logo-icon { font-size:36px; display:block; margin-bottom:8px; }
+        .reg-hero h1 { font-family:'DM Serif Display',serif; color:#fff; font-size:22px; margin:0 0 3px; }
+        .reg-hero p  { color:rgba(255,255,255,.6); font-size:12.5px; margin:0; }
+        .reg-body  { padding:28px 32px 32px; }
+        .section-label { font-size:11px; font-weight:700; text-transform:uppercase; letter-spacing:.08em; color:var(--muted); margin:20px 0 12px; padding-bottom:6px; border-bottom:1px solid var(--border); }
+        .section-label:first-child { margin-top:0; }
+        .form-grid2 { display:grid; grid-template-columns:1fr 1fr; gap:14px; }
+        .form-full2 { grid-column:1/-1; }
+        .fg { display:flex; flex-direction:column; gap:5px; }
+        .fg label { font-size:13px; font-weight:500; color:var(--navy); }
+        .fg input,.fg select,.fg textarea {
+            padding:10px 13px; border:1.5px solid var(--border); border-radius:8px;
+            font-size:14px; font-family:inherit; color:var(--text);
+            transition:border-color .15s; width:100%;
+        }
+        .fg input:focus,.fg select:focus,.fg textarea:focus {
+            outline:none; border-color:var(--teal); box-shadow:0 0 0 3px rgba(13,143,124,.1);
+        }
+        .req { color:var(--red); }
+        .hint-box { background:var(--blue-light); border-radius:8px; padding:10px 14px; font-size:12.5px; color:#1e40af; margin-bottom:16px; }
+        .alert { padding:12px 16px; border-radius:8px; font-size:13.5px; margin-bottom:16px; border-left:4px solid var(--red); background:var(--red-light); color:#7f1d1d; }
+        .btn-register { width:100%; padding:13px; background:var(--teal); color:#fff; border:none; border-radius:8px; font-size:15px; font-weight:600; cursor:pointer; font-family:inherit; margin-top:20px; transition:background .15s; }
+        .btn-register:hover { background:#0a7a6a; }
+        .login-link { text-align:center; margin-top:16px; font-size:13.5px; color:var(--muted); }
         .login-link a { color:var(--teal); font-weight:500; }
-        .alert { padding:12px 16px; border-radius:8px; font-size:13.5px; margin-bottom:18px; }
-        .alert-error { background:var(--red-light); color:#7f1d1d; border-left:4px solid var(--red); }
-        .badge-role  { display:inline-block; background:var(--amber-light); color:var(--amber); padding:2px 10px; border-radius:999px; font-size:11px; font-weight:600; }
-        .hint-box    { background:var(--blue-light); border-radius:8px; padding:10px 14px; font-size:12.5px; color:#1e40af; margin-bottom:18px; }
     </style>
 </head>
 <body>
-<div class="login-wrap">
-    <div class="login-card">
-        <div class="login-hero">
+<div class="reg-wrap">
+    <div class="reg-card">
+        <div class="reg-hero">
             <span class="logo-icon">🏥</span>
-            <h1>Create Account</h1>
-            <p><?= htmlspecialchars(CLINIC_NAME) ?> · Clinical System</p>
+            <h1>Patient Registration</h1>
+            <p><?= htmlspecialchars(CLINIC_NAME) ?> · Book appointments online</p>
         </div>
 
-        <div class="login-body">
-
-            <?php $users = $auth->getAllUsers(); ?>
-            <?php if (empty($users)): ?>
-                <div class="hint-box">
-                    👑 You are the <strong>first user</strong> — your account will automatically be set as <strong>Administrator</strong>.
-                </div>
-            <?php else: ?>
-                <div class="hint-box">
-                    New accounts are created as <strong>Staff</strong> role. An admin can promote you later.
-                </div>
-            <?php endif; ?>
+        <div class="reg-body">
+            <div class="hint-box">
+                📋 Register to book and track your appointments at <?= htmlspecialchars(CLINIC_NAME) ?>.
+                Your account gives you access to the <strong>patient portal</strong> only.
+            </div>
 
             <?php if ($error): ?>
-                <div class="alert alert-error"><?= htmlspecialchars($error) ?></div>
+                <div class="alert"><?= htmlspecialchars($error) ?></div>
             <?php endif; ?>
 
             <form method="POST">
-                <div class="form-group">
-                    <label>Full Name <span style="color:var(--red)">*</span></label>
-                    <input type="text" name="name" required autofocus
-                           value="<?= htmlspecialchars($values['name'] ?? '') ?>"
-                           placeholder="Dr. Juan dela Cruz">
-                </div>
-                <div class="form-group">
-                    <label>Email Address <span style="color:var(--red)">*</span></label>
-                    <input type="email" name="email" required
-                           value="<?= htmlspecialchars($values['email'] ?? '') ?>"
-                           placeholder="you@example.com">
-                </div>
-                <div class="form-group">
-                    <label>Phone Number <small style="color:var(--muted)">(for OTP login)</small></label>
-                    <input type="tel" name="phone"
-                           value="<?= htmlspecialchars($values['phone'] ?? '') ?>"
-                           placeholder="09171234567 or +639171234567">
-                </div>
-                <div class="form-row">
-                    <div class="form-group">
-                        <label>Password <span style="color:var(--red)">*</span></label>
-                        <input type="password" name="password" required
-                               placeholder="Min 8 characters">
+
+                <div class="section-label">Personal Information</div>
+                <div class="form-grid2">
+                    <div class="fg form-full2">
+                        <label>Full Name <span class="req">*</span></label>
+                        <input type="text" name="name" required autofocus
+                               value="<?= htmlspecialchars($values['name'] ?? '') ?>"
+                               placeholder="Juan dela Cruz">
                     </div>
-                    <div class="form-group">
-                        <label>Confirm Password <span style="color:var(--red)">*</span></label>
+                    <div class="fg">
+                        <label>Date of Birth <span class="req">*</span></label>
+                        <input type="date" name="dob" required
+                               value="<?= htmlspecialchars($values['dob'] ?? '') ?>">
+                    </div>
+                    <div class="fg">
+                        <label>Gender <span class="req">*</span></label>
+                        <select name="gender" required>
+                            <option value="">Select…</option>
+                            <?php foreach (['Male','Female','Other'] as $g): ?>
+                                <option value="<?= $g ?>" <?= ($values['gender']??'')===$g?'selected':'' ?>><?= $g ?></option>
+                            <?php endforeach; ?>
+                        </select>
+                    </div>
+                    <div class="fg">
+                        <label>Blood Type</label>
+                        <select name="blood_type">
+                            <option value="">Unknown</option>
+                            <?php foreach (['A+','A-','B+','B-','AB+','AB-','O+','O-'] as $bt): ?>
+                                <option value="<?= $bt ?>" <?= ($values['blood_type']??'')===$bt?'selected':'' ?>><?= $bt ?></option>
+                            <?php endforeach; ?>
+                        </select>
+                    </div>
+                    <div class="fg">
+                        <label>Allergies</label>
+                        <input type="text" name="allergies"
+                               value="<?= htmlspecialchars($values['allergies'] ?? '') ?>"
+                               placeholder="e.g. Penicillin, Peanuts">
+                    </div>
+                    <div class="fg form-full2">
+                        <label>Home Address</label>
+                        <input type="text" name="address"
+                               value="<?= htmlspecialchars($values['address'] ?? '') ?>"
+                               placeholder="Street, Barangay, City">
+                    </div>
+                </div>
+
+                <div class="section-label">Contact & Login</div>
+                <div class="form-grid2">
+                    <div class="fg">
+                        <label>Email Address <span class="req">*</span></label>
+                        <input type="email" name="email" required
+                               value="<?= htmlspecialchars($values['email'] ?? '') ?>"
+                               placeholder="you@example.com">
+                    </div>
+                    <div class="fg">
+                        <label>Phone <small style="color:var(--muted)">(for OTP login)</small></label>
+                        <input type="tel" name="phone"
+                               value="<?= htmlspecialchars($values['phone'] ?? '') ?>"
+                               placeholder="09171234567">
+                    </div>
+                    <div class="fg">
+                        <label>Password <span class="req">*</span></label>
+                        <input type="password" name="password" required placeholder="Min 8 characters">
+                    </div>
+                    <div class="fg">
+                        <label>Confirm Password <span class="req">*</span></label>
                         <input type="password" name="confirm" required placeholder="Repeat password">
                     </div>
                 </div>
-                <button type="submit" class="btn-login">🏥 Create Account</button>
+
+                <button type="submit" class="btn-register">✅ Create Patient Account</button>
             </form>
 
             <div class="login-link">

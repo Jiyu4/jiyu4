@@ -32,8 +32,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $_POST['password'] ?? ''
         );
         if ($result['success']) {
-            header('Location: ' . $next);
-            exit;
+            $auth->redirectToDashboard();
         }
         $error = $result['error'];
     }
@@ -43,7 +42,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $phone  = trim($_POST['phone'] ?? '');
         $result = $auth->generateOtp($phone);
         if ($result['success']) {
-            // Send via SMS gateway
             $smsResult = $gateway->send(
                 $result['phone'],
                 CLINIC_NAME . ' — Your login code is: ' . $result['code'] . '. Valid for 10 minutes.'
@@ -68,8 +66,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             trim($_POST['otp_code']  ?? '')
         );
         if ($result['success']) {
-            header('Location: ' . $next);
-            exit;
+            $auth->redirectToDashboard();
         }
         $error    = $result['error'];
         $otpSent  = true;
