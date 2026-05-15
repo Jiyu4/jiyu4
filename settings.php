@@ -131,33 +131,4 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'save_
             </div>
         </form>
 
-        <!-- Data Management -->
-        <div class="card" style="margin-top:24px">
-            <div class="card-header"><h2 class="card-title">🗂️ Data Files</h2></div>
-            <p>JSON data files are stored in the <code>data/</code> directory:</p>
-            <div class="detail-grid">
-                <?php
-                $files = [
-                    'patients.json'     => 'Patient records',
-                    'appointments.json' => 'Appointments',
-                    'sms_log.json'      => 'SMS log',
-                ];
-                foreach ($files as $file => $label):
-                    $path = __DIR__ . '/data/' . $file;
-                    $size = file_exists($path) ? round(filesize($path) / 1024, 2) . ' KB' : 'Not created yet';
-                    $count = 0;
-                    if (file_exists($path)) {
-                        $data = json_decode(file_get_contents($path), true);
-                        $count = is_array($data) ? count($data) : 0;
-                    }
-                ?>
-                <div class="detail-item">
-                    <span class="detail-label"><?= $label ?></span>
-                    <span><code><?= $file ?></code> — <?= $count ?> record(s), <?= $size ?></span>
-                </div>
-                <?php endforeach; ?>
-            </div>
-        </div>
-    </main>
-</body>
-</html>
+     

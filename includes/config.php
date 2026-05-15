@@ -4,8 +4,8 @@
 // ============================================================
 
 define('CLINIC_NAME',    'MediCare Clinic');
-define('CLINIC_PHONE',   '+63XXXXXXXXXX');
-define('CLINIC_ADDRESS', '123 Health Street, Medical City');
+define('CLINIC_PHONE',   '+639944145102');
+define('CLINIC_ADDRESS', 'Sunn Old Sagay Campus, Sagay City, Negros Occidental');
 
 // ============================================================
 //  MYSQL DATABASE CONFIGURATION
